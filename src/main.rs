@@ -16,16 +16,16 @@ mod scraper;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Discord user token (or set DISCORD_TOKEN env var)
-    #[arg(short, long)]
+    /// Discord user token
+    #[arg(short, long, env = "DISCORD_TOKEN")]
     token: Option<String>,
 
-    /// Status to maintain: online, idle, dnd
-    #[arg(short, long, default_value = "online")]
+    /// Status to maintain: online, idle, dnd, invisible
+    #[arg(short, long, default_value = "online", env = "DISCORD_STATUS")]
     status: String,
 
     /// Enable verbose (debug) logging
-    #[arg(short, long)]
+    #[arg(short, long, env = "DISCORD_VERBOSE")]
     verbose: bool,
 }
 
@@ -46,11 +46,11 @@ async fn main() -> Result<()> {
         .with_env_filter(EnvFilter::new(filter))
         .init();
 
-    // Resolve the Discord token.
-    let token = match args.token.or_else(|| std::env::var("DISCORD_TOKEN").ok()) {
+    // Resolve the Discord token (clap reads DISCORD_TOKEN env var automatically).
+    let token = match args.token {
         Some(t) if !t.is_empty() => t,
         _ => bail!(
-            "Discord token is required. Pass --token <TOKEN> or set DISCORD_TOKEN env var."
+            "Discord token is required. Pass --token <TOKEN> or set DISCORD_TOKEN in .env / env."
         ),
     };
 
