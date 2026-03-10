@@ -24,4 +24,4 @@ anyhow = "1"
 tokio-stream = "0.1"
 rand = "0.8"
 regex = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
