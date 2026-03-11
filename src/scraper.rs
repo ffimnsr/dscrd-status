@@ -1,24 +1,24 @@
 use anyhow::Result;
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::OnceLock;
 use tracing::{debug, warn};
 
-const FALLBACK_BUILD_NUMBER: u64 = 308796;
-const DISCORD_APP_URL: &str = "https://discord.com/app";
+const FALLBACK_BUILD_NUMBER: u64 = 508471;
+const DISCORD_LOGIN_URL: &str = "https://discord.com/login";
 
 static SCRIPT_RE: OnceLock<Regex> = OnceLock::new();
 static BUILD_RE: OnceLock<Regex> = OnceLock::new();
 
 fn script_re() -> &'static Regex {
-    SCRIPT_RE.get_or_init(|| {
-        Regex::new(r#"/assets/([a-f0-9]+)\.js"#).expect("script regex is valid")
-    })
+    SCRIPT_RE
+        .get_or_init(|| Regex::new(r#"(/assets/[^"'<>[:space:]]+\.js)"#).expect("script regex is valid"))
 }
 
 fn build_re() -> &'static Regex {
     BUILD_RE.get_or_init(|| {
         Regex::new(
-            r#"(?:buildNumber:"(\d+)"|build_number:(\d+)|"BUILD_NUMBER","(\d+)"|buildNumber:(\d+))"#,
+            r#"(?:YA\("buildNumber","(\d+)"\)|buildNumber:"(\d+)"|build_number:(\d+)|"BUILD_NUMBER","(\d+)")"#,
         )
         .expect("build number regex is valid")
     })
@@ -50,33 +50,37 @@ pub async fn fetch_discord_info(client: &reqwest::Client) -> DiscordInfo {
 
 async fn try_scrape_build_number(client: &reqwest::Client) -> Result<u64> {
     let html = client
-        .get(DISCORD_APP_URL)
+        .get(DISCORD_LOGIN_URL)
         .send()
         .await?
         .text()
         .await?;
 
-    let asset_hashes: Vec<String> = script_re()
+    let mut seen_assets = HashSet::new();
+    let asset_paths: Vec<String> = script_re()
         .captures_iter(&html)
-        .map(|cap| cap[1].to_string())
+        .filter_map(|cap| {
+            let path = cap[1].to_string();
+            seen_assets.insert(path.clone()).then_some(path)
+        })
         .collect();
 
-    debug!("Found {} JS asset(s) on Discord app page", asset_hashes.len());
+    debug!("Found {} JS asset(s) on Discord login page", asset_paths.len());
 
-    for hash in asset_hashes.iter().take(10) {
-        let url = format!("https://discord.com/assets/{}.js", hash);
+    for path in &asset_paths {
+        let url = format!("https://discord.com{path}");
         debug!("Fetching JS asset: {}", url);
 
         let js = match client.get(&url).send().await {
             Ok(resp) => match resp.text().await {
                 Ok(text) => text,
                 Err(e) => {
-                    debug!("Failed to read JS asset {}: {}", hash, e);
+                    debug!("Failed to read JS asset {}: {}", path, e);
                     continue;
                 }
             },
             Err(e) => {
-                debug!("Failed to fetch JS asset {}: {}", hash, e);
+                debug!("Failed to fetch JS asset {}: {}", path, e);
                 continue;
             }
         };
