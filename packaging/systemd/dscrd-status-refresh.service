@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart dscrd-status to refresh the Discord build number
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart dscrd-status.service

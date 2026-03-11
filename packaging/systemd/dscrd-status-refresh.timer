@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily restart timer for dscrd-status
+
+[Timer]
+Unit=dscrd-status-refresh.service
+OnCalendar=*-*-* 05:00:00
+Persistent=true
+RandomizedDelaySec=10m
+
+[Install]
+WantedBy=timers.target

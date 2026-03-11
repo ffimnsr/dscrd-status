@@ -52,9 +52,7 @@ pub fn spawn_heartbeat_task(
     reconnect_tx: mpsc::Sender<()>,
 ) {
     tokio::spawn(async move {
-        if let Err(e) =
-            heartbeat_loop(interval_ms, state, ws_tx, reconnect_tx).await
-        {
+        if let Err(e) = heartbeat_loop(interval_ms, state, ws_tx, reconnect_tx).await {
             warn!("Heartbeat loop exited: {}", e);
         }
     });

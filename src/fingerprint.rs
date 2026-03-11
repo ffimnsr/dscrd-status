@@ -88,4 +88,3 @@ pub fn select_fingerprint(build_number: u64) -> Fingerprint {
         client_event_source: None,
     }
 }
-

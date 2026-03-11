@@ -11,8 +11,9 @@ static SCRIPT_RE: OnceLock<Regex> = OnceLock::new();
 static BUILD_RE: OnceLock<Regex> = OnceLock::new();
 
 fn script_re() -> &'static Regex {
-    SCRIPT_RE
-        .get_or_init(|| Regex::new(r#"(/assets/[^"'<>[:space:]]+\.js)"#).expect("script regex is valid"))
+    SCRIPT_RE.get_or_init(|| {
+        Regex::new(r#"(/assets/[^"'<>[:space:]]+\.js)"#).expect("script regex is valid")
+    })
 }
 
 fn build_re() -> &'static Regex {
@@ -49,12 +50,7 @@ pub async fn fetch_discord_info(client: &reqwest::Client) -> DiscordInfo {
 }
 
 async fn try_scrape_build_number(client: &reqwest::Client) -> Result<u64> {
-    let html = client
-        .get(DISCORD_LOGIN_URL)
-        .send()
-        .await?
-        .text()
-        .await?;
+    let html = client.get(DISCORD_LOGIN_URL).send().await?.text().await?;
 
     let mut seen_assets = HashSet::new();
     let asset_paths: Vec<String> = script_re()
@@ -65,7 +61,10 @@ async fn try_scrape_build_number(client: &reqwest::Client) -> Result<u64> {
         })
         .collect();
 
-    debug!("Found {} JS asset(s) on Discord login page", asset_paths.len());
+    debug!(
+        "Found {} JS asset(s) on Discord login page",
+        asset_paths.len()
+    );
 
     for path in &asset_paths {
         let url = format!("https://discord.com{path}");

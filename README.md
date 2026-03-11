@@ -139,6 +139,10 @@ OPTIONS:
     -t, --token <TOKEN>      Discord user token [env: DISCORD_TOKEN]
     -s, --status <STATUS>    Status to set: online, idle, dnd, invisible [env: DISCORD_STATUS] [default: online]
     -v, --verbose            Enable verbose logging [env: DISCORD_VERBOSE]
+        --active-start <TIME>
+                             Daily local start time like 09:00 [env: DISCORD_ACTIVE_START]
+        --active-end <TIME>  Daily local end time like 18:00 [env: DISCORD_ACTIVE_END]
+        --timezone <TZ>      IANA timezone like America/Chicago [env: DISCORD_TIMEZONE]
     -h, --help               Print help
     -V, --version            Print version
 ```
@@ -158,6 +162,12 @@ DISCORD_TOKEN=YOUR_TOKEN_HERE cargo run
 # Set idle status with verbose logging
 cargo run -- --token YOUR_TOKEN_HERE --status idle --verbose
 
+# Stay active only during business hours in Chicago
+cargo run -- --token YOUR_TOKEN_HERE --active-start 09:00 --active-end 17:30 --timezone America/Chicago
+
+# Overnight window example
+cargo run -- --token YOUR_TOKEN_HERE --active-start 22:00 --active-end 06:00 --timezone Asia/Taipei
+
 # Run the compiled release binary
 ./target/release/dscrd-status --token YOUR_TOKEN_HERE
 
@@ -169,33 +179,96 @@ nohup ./target/release/dscrd-status &
 
 ### Running as a background service (systemd)
 
-Create `/etc/systemd/system/dscrd-status.service`:
+This repository includes ready-to-install systemd assets:
 
-```ini
-[Unit]
-Description=Discord presence keeper
-After=network-online.target
-Wants=network-online.target
+- `packaging/systemd/dscrd-status.service`
+- `packaging/systemd/dscrd-status.env.example`
+- `packaging/systemd/dscrd-status-refresh.service`
+- `packaging/systemd/dscrd-status-refresh.timer`
+- `packaging/systemd/install-user-systemd.sh`
 
-[Service]
-Type=simple
-User=YOUR_USERNAME
-WorkingDirectory=/path/to/dscrd-status
-EnvironmentFile=/path/to/dscrd-status/.env
-ExecStart=/path/to/dscrd-status/target/release/dscrd-status
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Then enable and start it:
+Install them like this:
 
 ```bash
+# Build and install the binary
+cargo build --release
+sudo install -Dm755 target/release/dscrd-status /usr/local/bin/dscrd-status
+
+# Create a dedicated service account
+sudo useradd --system --home /var/lib/dscrd-status --create-home --shell /usr/sbin/nologin dscrd-status
+
+# Install the env file and edit it
+sudo install -d /etc/dscrd-status
+sudo install -m600 packaging/systemd/dscrd-status.env.example /etc/dscrd-status/dscrd-status.env
+sudo editor /etc/dscrd-status/dscrd-status.env
+
+# Install the unit
+sudo install -Dm644 packaging/systemd/dscrd-status.service /etc/systemd/system/dscrd-status.service
+sudo install -Dm644 packaging/systemd/dscrd-status-refresh.service /etc/systemd/system/dscrd-status-refresh.service
+sudo install -Dm644 packaging/systemd/dscrd-status-refresh.timer /etc/systemd/system/dscrd-status-refresh.timer
+
+# Enable and start it
 sudo systemctl daemon-reload
 sudo systemctl enable --now dscrd-status
+sudo systemctl enable --now dscrd-status-refresh.timer
 sudo systemctl status dscrd-status
+sudo systemctl list-timers dscrd-status-refresh.timer
+```
+
+The service stays running under systemd and the daemon itself enforces the daily active window. Outside that window it sleeps and waits for the next start time, so the configured timezone stays accurate even for overnight schedules.
+
+The refresh timer restarts the daemon once per day so the CLI re-scrapes Discord's current build number on startup. The packaged timer defaults to `05:00:00` in the server's local timezone:
+
+```ini
+[Timer]
+OnCalendar=*-*-* 05:00:00
+```
+
+Change that time by editing `/etc/systemd/system/dscrd-status-refresh.timer`, then reload systemd:
+
+```bash
+sudo editor /etc/systemd/system/dscrd-status-refresh.timer
+sudo systemctl daemon-reload
+sudo systemctl restart dscrd-status-refresh.timer
+```
+
+Example: restart daily at 03:30 local time:
+
+```ini
+[Timer]
+OnCalendar=*-*-* 03:30:00
+```
+
+### Running as a user service
+
+If you do not want a system-wide unit under `/etc/systemd/system`, use the installer script:
+
+```bash
+cargo build --release
+./packaging/systemd/install-user-systemd.sh
+```
+
+That script:
+
+- installs user units into `~/.config/systemd/user`
+- creates `~/.config/dscrd-status/dscrd-status.env` if it does not exist
+- runs `systemctl --user daemon-reload`
+- enables and starts `dscrd-status.service`
+- enables and starts the daily refresh timer by default
+
+Optional flags:
+
+```bash
+./packaging/systemd/install-user-systemd.sh \
+  --binary /absolute/path/to/dscrd-status \
+  --env-file ~/.config/dscrd-status/dscrd-status.env \
+  --refresh-time 03:30:00
+```
+
+If you only want the service and not the daily restart timer:
+
+```bash
+./packaging/systemd/install-user-systemd.sh --no-enable-timer
 ```
 
 ---
@@ -218,6 +291,11 @@ Every CLI flag can be set via an environment variable. The daemon reads a `.env`
 | `DISCORD_TOKEN` | `--token` | ✅ Yes | — | Your Discord user token |
 | `DISCORD_STATUS` | `--status` | ❌ No | `online` | Presence status: `online`, `idle`, `dnd`, `invisible` |
 | `DISCORD_VERBOSE` | `--verbose` | ❌ No | `false` | Set to `true` or `1` to enable debug logging |
+| `DISCORD_ACTIVE_START` | `--active-start` | ❌ No | — | Daily local start time in `HH:MM` or `HH:MM:SS` |
+| `DISCORD_ACTIVE_END` | `--active-end` | ❌ No | — | Daily local end time in `HH:MM` or `HH:MM:SS` |
+| `DISCORD_TIMEZONE` | `--timezone` | ❌ No | `UTC` when a window is set | IANA timezone such as `America/Chicago` or `Asia/Taipei` |
+
+If you set `DISCORD_ACTIVE_START`, you must also set `DISCORD_ACTIVE_END`, and vice versa. Overnight windows are supported. For example, `22:00` to `06:00` means the daemon connects at 10:00 PM and disconnects at 6:00 AM every day in the chosen timezone.
 
 ### Example `.env` file
 
@@ -234,6 +312,11 @@ DISCORD_TOKEN=your_user_token_here
 # Optional — keep these commented out to use the defaults
 #DISCORD_STATUS=online
 #DISCORD_VERBOSE=false
+
+# Optional schedule
+#DISCORD_ACTIVE_START=09:00
+#DISCORD_ACTIVE_END=18:00
+#DISCORD_TIMEZONE=America/Chicago
 ```
 
 ---
@@ -242,14 +325,15 @@ DISCORD_TOKEN=your_user_token_here
 
 Discord's Gateway rejects connections with an outdated `client_build_number`. The scraper:
 
-1. Makes an HTTP GET to `https://discord.com/app` with a real Chrome User-Agent
-2. Parses the HTML to find `<script>` tags referencing JS asset files (e.g. `/assets/abc123.js`)
-3. Fetches up to 10 of those JS files and searches for the build number pattern:
+1. Makes an HTTP GET to `https://discord.com/login` with a real Chrome User-Agent
+2. Parses the HTML to find `<script>` tags referencing JS asset files (e.g. `/assets/web.b583426249e4da72.js`)
+3. Fetches those JS files and searches for the build number pattern:
+   - `YA("buildNumber","(\d+)")`
    - `buildNumber:"(\d+)"`
    - `build_number:(\d+)`
    - `"BUILD_NUMBER","(\d+)"`
-4. Caches the result in memory for the session lifetime
-5. Falls back to a hardcoded recent build number (`308796`) if scraping fails
+4. Returns the first matching build number
+5. Falls back to a hardcoded recent build number (`508471`) if scraping fails
 
 ---
 

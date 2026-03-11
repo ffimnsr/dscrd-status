@@ -1,0 +1,24 @@
+[Unit]
+Description=Discord presence keeper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dscrd-status
+Group=dscrd-status
+WorkingDirectory=/var/lib/dscrd-status
+EnvironmentFile=/etc/dscrd-status/dscrd-status.env
+ExecStart=/usr/local/bin/dscrd-status
+Restart=always
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/etc/dscrd-status
+StateDirectory=dscrd-status
+LogsDirectory=dscrd-status
+
+[Install]
+WantedBy=multi-user.target

@@ -17,29 +17,14 @@ const GATEWAY_URL: &str = "wss://gateway.discord.gg/?v=10&encoding=json";
 const PRESENCE_UPDATE_INTERVAL_SECS: u64 = 300; // 5 minutes
 
 /// Run the Discord gateway loop, reconnecting as needed.
-pub async fn run_gateway(
-    token: String,
-    status: String,
-    fingerprint: Fingerprint,
-) -> Result<()> {
+pub async fn run_gateway(token: String, status: String, fingerprint: Fingerprint) -> Result<()> {
     let mut session_id: Option<String> = None;
     let mut resume_url: Option<String> = None;
 
     loop {
-        let url = resume_url
-            .as_deref()
-            .unwrap_or(GATEWAY_URL)
-            .to_string();
+        let url = resume_url.as_deref().unwrap_or(GATEWAY_URL).to_string();
 
-        match connect_once(
-            &url,
-            &token,
-            &status,
-            &fingerprint,
-            session_id.clone(),
-        )
-        .await
-        {
+        match connect_once(&url, &token, &status, &fingerprint, session_id.clone()).await {
             Ok(GatewayExit::Reconnect {
                 new_session_id,
                 new_resume_url,
